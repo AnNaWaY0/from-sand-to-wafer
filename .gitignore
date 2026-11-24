@@ -10,3 +10,4 @@ public/posters/baking-*.jpg
 
 # local helper
 publish.bat
+publish-log.txt
