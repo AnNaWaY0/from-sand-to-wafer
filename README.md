@@ -45,6 +45,9 @@ and update `FW`, `FH`, `FRAMES`, `CARD`, `END` at the top of the component.
 | `FireToCircuitLine` | Scroll-drawn PCB connector that cools from molten orange to circuit blue |
 | `CircuitProcessMap` | Stage 2 — vertical PCB trace (45° jogs) in a sticky "camera"; `useScroll` draws the current, it pauses at each of the 5 via pads; the trace runs on to the bottom edge of the section |
 | `ui/Caption` | The one caption style for every chapter (kicker, masked headline, body, spec row) |
+| `ui/ScrambleText` | Digital decode effect for kickers and spec values |
+| `lib/useGuidedScroll` | Inside the films (`data-guide` zones) one downward gesture plays to the next stop; scrolling up stays manual |
+| `lib/useMagneticScroll` | Elsewhere, the page settles onto nearby story points (`data-snap`) in the direction you were scrolling |
 | `ui/ChapterRail` | Fixed chapter index on the right; numbers come from `src/data/chapters.ts` |
 | `RevealText` | Headline words rise out of a mask on enter |
 | `StagePreviewCard` | Large glass card beside the resting pad: autoplay clip, text, facts; hover glow + scale + "Details" badge; click opens the lightbox |

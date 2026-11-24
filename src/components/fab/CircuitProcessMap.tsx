@@ -122,10 +122,12 @@ export default function CircuitProcessMap({ steps }: Props) {
     <>
       <div ref={outerRef} id="wafer-line" className="relative" style={{ height: `${n * 135 + 60}vh` }}>
         {/* story points for the magnetic scroll: the chapter label and every station pause */}
-        <div data-snap aria-hidden className="pointer-events-none absolute left-0 top-0 h-px w-px" />
+        <div data-snap data-guide="route" aria-hidden className="pointer-events-none absolute left-0 top-0 h-px w-px" />
         {stops.map((st, i) => (
-          <div key={i} data-snap aria-hidden className="pointer-events-none absolute left-0 h-px w-px" style={{ top: `${st * (n * 135 + 60 - 100)}vh` }} />
+          <div key={i} data-snap data-guide="route" aria-hidden className="pointer-events-none absolute left-0 h-px w-px" style={{ top: `${st * (n * 135 + 60 - 100)}vh` }} />
         ))}
+        {/* end of the route: the trace runs on into the next block */}
+        <div data-guide="route" aria-hidden className="pointer-events-none absolute left-0 h-px w-px" style={{ top: `${n * 135 + 60 - 100}vh` }} />
         <div ref={stageRef} className="sticky top-0 h-screen overflow-hidden">
           <motion.div className="absolute left-0 top-0 w-full" style={{ y: camY, height: H * s }}>
             <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H * s} className="block overflow-visible" aria-hidden>

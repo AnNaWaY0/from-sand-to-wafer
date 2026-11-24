@@ -21,7 +21,7 @@ export default function MeltingVideo({ intro }: Props) {
   const stub = useTransform(scrollYProgress, [0.45, 0.62], [0, 1]);
 
   return (
-    <div ref={ref} id="smelting" data-snap className="relative h-screen min-h-[640px] w-full overflow-hidden">
+    <div ref={ref} id="smelting" data-snap data-guide="intro" className="relative h-screen min-h-[640px] w-full overflow-hidden">
       <motion.video
         style={{ scale, opacity }}
         className="absolute inset-0 h-full w-full object-cover"

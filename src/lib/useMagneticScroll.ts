@@ -18,6 +18,8 @@ export function useMagneticScroll({ radius = 0.3, idle = 160, duration = 0.8 } =
     let timer = 0;
     let anim: ReturnType<typeof animate> | null = null;
     let gliding = false;
+    let lastY = window.scrollY;
+    let dir = 0; // direction of the reader's last scroll: 1 down, -1 up
 
     const stop = () => {
       if (anim) {
@@ -33,9 +35,13 @@ export function useMagneticScroll({ radius = 0.3, idle = 160, duration = 0.8 } =
       const y = window.scrollY;
       const vh = window.innerHeight;
       let best: number | null = null;
+      // only pull forward in the direction the reader was going (never yank them back)
+      const back = 0.08 * vh;
       document.querySelectorAll<HTMLElement>('[data-snap]').forEach((el) => {
         const t = el.getBoundingClientRect().top + y;
-        if (Math.abs(t - y) <= radius * vh && (best === null || Math.abs(t - y) < Math.abs(best - y))) best = t;
+        const d = t - y;
+        const ahead = dir >= 0 ? d >= -back : d <= back;
+        if (ahead && Math.abs(d) <= radius * vh && (best === null || Math.abs(d) < Math.abs(best - y))) best = t;
       });
       if (best === null || Math.abs(best - y) < 3) return;
       gliding = true;
@@ -51,6 +57,9 @@ export function useMagneticScroll({ radius = 0.3, idle = 160, duration = 0.8 } =
     };
 
     const onScroll = () => {
+      const y = window.scrollY;
+      if (!gliding && !window.__guidedScroll && y !== lastY) dir = y > lastY ? 1 : -1;
+      lastY = y;
       if (gliding) return;
       window.clearTimeout(timer);
       timer = window.setTimeout(settle, idle);

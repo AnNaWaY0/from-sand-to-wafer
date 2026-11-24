@@ -2,11 +2,13 @@ import BakingToFabSection from './components/fab/BakingToFabSection';
 import IntroScrollFilm from './components/intro/IntroScrollFilm';
 import ChapterRail from './components/ui/ChapterRail';
 import { kicker } from './data/chapters';
+import { useGuidedScroll } from './lib/useGuidedScroll';
 import { useMagneticScroll } from './lib/useMagneticScroll';
 
 /** Demo page: 00–01 prologue film, 02–03 furnace to wafer, then a stand-in for chapter 04. */
 export default function App() {
-  useMagneticScroll();
+  useMagneticScroll({ radius: 0.5, idle: 90, duration: 0.55 });
+  useGuidedScroll();
   return (
     <main className="bg-ink text-white">
       <ChapterRail />

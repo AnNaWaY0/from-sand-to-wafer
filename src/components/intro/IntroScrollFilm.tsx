@@ -1,4 +1,4 @@
-import { animate, motion, useMotionValueEvent, useScroll, useSpring, useTransform } from 'framer-motion';
+import { motion, useMotionValueEvent, useScroll, useSpring, useTransform } from 'framer-motion';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { kicker } from '../../data/chapters';
 import Caption from '../ui/Caption';
@@ -15,11 +15,22 @@ const END = 511; // landscape almost fully revealed
 const MARK = { x: 0.33, y: 0.68 }; // the quarry, as a share of the frame
 
 // Scroll timeline (0..1 over the whole pinned stretch)
-const T = { card: 0.27, cardOut: 0.4, land: 0.7, landOut: 0.84 };
+const T = { card: 0.3, cardOut: 0.37, land: 0.8, landOut: 0.87 };
 
-const LEN = 700; // pinned stretch, in vh
-// first scroll from the top glides the film to this point (the question)
+const LEN = 1000; // pinned stretch, in vh
+// pause where the card faces the viewer and the question appears
 const AUTOPLAY_TO = (T.card + T.cardOut) / 2;
+const SPRUCE_AT = (T.land + T.landOut) / 2;
+
+// Guided playback speed relative to the rendered film (24 fps). 1 = real time.
+const PLAYBACK = 1.2;
+const FPS = 24;
+// seconds for each guided glide, so the moving part of the film runs at PLAYBACK speed
+const GLIDE_TO_CARD = CARD / FPS / PLAYBACK / (T.card / AUTOPLAY_TO);
+const GLIDE_TO_SPRUCE = (END - CARD) / FPS / PLAYBACK / ((T.land - T.cardOut) / (SPRUCE_AT - AUTOPLAY_TO));
+// decoded atlases kept around the current one (each 3840×2160 ≈ 33 MB)
+const KEEP_BEHIND = 1;
+const KEEP_AHEAD = 2;
 
 const atlasUrl = (i: number) => `intro/atlas${String(i + 1).padStart(2, '0')}.webp`;
 
@@ -33,6 +44,10 @@ export default function IntroScrollFilm() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgs = useRef<HTMLImageElement[]>([]);
   const loaded = useRef<boolean[]>([]);
+  // pre-decoded copies of nearby atlases, so crossing an atlas boundary never blocks a frame
+  const bitmaps = useRef<(ImageBitmap | null)[]>([]);
+  const decoding = useRef<Set<number>>(new Set());
+  const windowAt = useRef(0);
   const lastDrawn = useRef(-1);
   const [box, setBox] = useState({ w: 1440, h: 900, dx: 0, dy: 0, dw: 1440, dh: 810 });
   const [phase, setPhase] = useState<'start' | 'card' | 'move' | 'land' | 'out'>('start');
@@ -43,7 +58,7 @@ export default function IntroScrollFilm() {
 
   // exit: blur + fade into the page
   const blur = useTransform(p, [T.landOut + 0.02, 1], [0, 26]);
-  const filter = useTransform(blur, (b) => `blur(${b}px)`);
+  const filter = useTransform(blur, (b) => (b < 0.3 ? 'none' : `blur(${b.toFixed(1)}px)`));
   const filmOpacity = useTransform(p, [T.landOut + 0.02, 0.985], [1, 0]);
   // while the card faces the viewer the film steps back and to the right, leaving room for the question
   const filmScale = useTransform(
@@ -54,6 +69,31 @@ export default function IntroScrollFilm() {
   const filmX = useTransform(p, [T.card - 0.08, T.card, T.cardOut, T.cardOut + 0.06], ['0%', '17%', '17%', '0%']);
   const hintOpacity = useTransform(p, [0, 0.03], [1, 0]);
 
+  // decode the atlases around `a` off the main thread and free the rest
+  const prepare = (a: number) => {
+    windowAt.current = a;
+    const lo = a - KEEP_BEHIND;
+    const hi = a + KEEP_AHEAD;
+    for (let i = Math.max(0, lo); i <= Math.min(ATLASES - 1, hi); i++) {
+      if (!loaded.current[i] || bitmaps.current[i] || decoding.current.has(i) || typeof createImageBitmap !== 'function') continue;
+      decoding.current.add(i);
+      createImageBitmap(imgs.current[i])
+        .then((bmp) => {
+          decoding.current.delete(i);
+          const w = windowAt.current;
+          if (i < w - KEEP_BEHIND - 1 || i > w + KEEP_AHEAD + 1) bmp.close();
+          else bitmaps.current[i] = bmp;
+        })
+        .catch(() => decoding.current.delete(i));
+    }
+    bitmaps.current.forEach((b, i) => {
+      if (b && (i < lo - 1 || i > hi + 1)) {
+        b.close();
+        bitmaps.current[i] = null;
+      }
+    });
+  };
+
   const draw = (f: number) => {
     const c = canvasRef.current;
     if (!c) return;
@@ -62,8 +102,9 @@ export default function IntroScrollFilm() {
     while (k > 0 && !loaded.current[Math.floor(k / PER)]) k -= 1;
     const a = Math.floor(k / PER);
     if (!loaded.current[a]) return;
+    if (a !== windowAt.current || !bitmaps.current[a]) prepare(a);
     if (k === lastDrawn.current) return;
-    const ctx = c.getContext('2d');
+    const ctx = c.getContext('2d', { alpha: false });
     if (!ctx) return;
     const cell = k % PER;
     const sx = (cell % COLS) * FW;
@@ -71,7 +112,7 @@ export default function IntroScrollFilm() {
     const s = Math.max(c.width / FW, c.height / FH);
     const dw = FW * s;
     const dh = FH * s;
-    ctx.drawImage(imgs.current[a], sx, sy, FW, FH, (c.width - dw) / 2, (c.height - dh) / 2, dw, dh);
+    ctx.drawImage(bitmaps.current[a] ?? imgs.current[a], sx, sy, FW, FH, (c.width - dw) / 2, (c.height - dh) / 2, dw, dh);
     lastDrawn.current = k;
   };
 
@@ -84,6 +125,7 @@ export default function IntroScrollFilm() {
       im.decoding = 'async';
       im.onload = () => {
         loaded.current[i] = true;
+        if (i <= windowAt.current + KEEP_AHEAD) prepare(windowAt.current);
         lastDrawn.current = -1;
         draw(frame.get());
         load(i + 1);
@@ -94,6 +136,8 @@ export default function IntroScrollFilm() {
     load(0);
     return () => {
       cancelled = true;
+      bitmaps.current.forEach((b) => b?.close());
+      bitmaps.current = [];
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -117,51 +161,6 @@ export default function IntroScrollFilm() {
     return () => window.removeEventListener('resize', fit);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // The first scroll gesture at the top plays the film by itself up to the question.
-  useEffect(() => {
-    let done = false;
-    let running = false;
-    const keys = ['ArrowDown', 'PageDown', ' ', 'Spacebar'];
-    const onIntent = (e: Event) => {
-      if (running) {
-        e.preventDefault();
-        return;
-      }
-      if (done) return;
-      if (window.scrollY > 40) {
-        done = true;
-        return;
-      }
-      if (e instanceof WheelEvent && e.deltaY <= 0) return;
-      if (e instanceof KeyboardEvent && !keys.includes(e.key)) return;
-      const el = outerRef.current;
-      if (!el) return;
-      e.preventDefault();
-      done = true;
-      running = true;
-      window.__guidedScroll = true;
-      const top = el.getBoundingClientRect().top + window.scrollY;
-      const target = top + (el.offsetHeight - window.innerHeight) * AUTOPLAY_TO;
-      animate(window.scrollY, target, {
-        duration: 3.2,
-        ease: [0.45, 0, 0.2, 1],
-        onUpdate: (v) => window.scrollTo(0, v),
-        onComplete: () => {
-          running = false;
-          window.__guidedScroll = false;
-        },
-      });
-    };
-    window.addEventListener('wheel', onIntent, { passive: false });
-    window.addEventListener('touchmove', onIntent, { passive: false });
-    window.addEventListener('keydown', onIntent);
-    return () => {
-      window.removeEventListener('wheel', onIntent);
-      window.removeEventListener('touchmove', onIntent);
-      window.removeEventListener('keydown', onIntent);
-    };
-  }, []);
-
   useMotionValueEvent(frame, 'change', draw);
   useMotionValueEvent(p, 'change', (v) => {
     const next =
@@ -175,9 +174,9 @@ export default function IntroScrollFilm() {
   return (
     <div ref={outerRef} className="relative" style={{ height: `${LEN}vh` }}>
       {/* chapter anchors sit at the scroll position of each pause */}
-      <div id="prologue" data-snap aria-hidden className="pointer-events-none absolute left-0 top-0 h-px w-px" />
-      <div id="spruce-pine" data-snap aria-hidden className="pointer-events-none absolute left-0 h-px w-px" style={{ top: `${((T.land + T.landOut) / 2) * (LEN - 100)}vh` }} />
-      <div data-snap aria-hidden className="pointer-events-none absolute left-0 h-px w-px" style={{ top: `${AUTOPLAY_TO * (LEN - 100)}vh` }} />
+      <div id="prologue" data-snap data-guide="intro" aria-hidden className="pointer-events-none absolute left-0 top-0 h-px w-px" />
+      <div id="spruce-pine" data-snap data-guide="intro" data-guide-duration={GLIDE_TO_SPRUCE.toFixed(2)} aria-hidden className="pointer-events-none absolute left-0 h-px w-px" style={{ top: `${SPRUCE_AT * (LEN - 100)}vh` }} />
+      <div data-snap data-guide="intro" data-guide-duration={GLIDE_TO_CARD.toFixed(2)} aria-hidden className="pointer-events-none absolute left-0 h-px w-px" style={{ top: `${AUTOPLAY_TO * (LEN - 100)}vh` }} />
       <div className="sticky top-0 h-screen overflow-hidden bg-ink">
         <motion.div className="absolute inset-0" style={{ filter, opacity: filmOpacity, scale: filmScale, x: filmX }}>
           <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" aria-label="A GPU card zooms out, dissolves into sand and opens onto the quartz mines of Spruce Pine" role="img" />
