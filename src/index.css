@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: dark; }
+html, body { background: #09090B; color: #FAFAFA; }
+body { font-family: Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+.vignette { background: radial-gradient(120% 90% at 50% 40%, rgba(9,9,11,0) 55%, rgba(9,9,11,.85) 100%); }
+.tech-grid {
+  background-image:
+    linear-gradient(rgba(56,189,248,.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(56,189,248,.05) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}

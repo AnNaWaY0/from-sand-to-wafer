@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.DS_Store
+Thumbs.db
+# leftovers from earlier versions (safe to delete)
+src/components/fab/ProcessMediaSlider.tsx
+src/components/fab/HoverPreviewCard.tsx
+public/videos/baking-*.mp4
+public/posters/baking-*.jpg
+
+# local helper
+publish.bat
