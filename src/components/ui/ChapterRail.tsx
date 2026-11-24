@@ -10,21 +10,36 @@ export default function ChapterRail() {
   const [active, setActive] = useState(0);
 
   useEffect(() => {
+    // chapter positions are measured only when the layout changes, not on every scroll
+    let tops: number[] = [];
+    let raf = 0;
+    const measure = () => {
+      tops = chapters.map((c) => {
+        const el = document.getElementById(c.id);
+        return el ? el.getBoundingClientRect().top + window.scrollY : Infinity;
+      });
+      update();
+    };
     const update = () => {
+      raf = 0;
       const mid = window.scrollY + window.innerHeight * 0.5;
       let k = 0;
-      chapters.forEach((c, i) => {
-        const el = document.getElementById(c.id);
-        if (el && el.getBoundingClientRect().top + window.scrollY <= mid) k = i;
+      tops.forEach((t, i) => {
+        if (t <= mid) k = i;
       });
       setActive((prev) => (prev === k ? prev : k));
     };
-    update();
-    window.addEventListener('scroll', update, { passive: true });
-    window.addEventListener('resize', update);
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(update);
+    };
+    const ro = new ResizeObserver(measure);
+    ro.observe(document.body);
+    measure();
+    window.addEventListener('scroll', onScroll, { passive: true });
     return () => {
-      window.removeEventListener('scroll', update);
-      window.removeEventListener('resize', update);
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      window.removeEventListener('scroll', onScroll);
     };
   }, []);
 

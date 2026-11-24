@@ -1,15 +1,13 @@
 import { motion, useMotionValueEvent, useScroll, useSpring, useTransform } from 'framer-motion';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { kicker } from '../../data/chapters';
+import { FrameStore } from '../../lib/frameStore';
 import Caption from '../ui/Caption';
 
-// Rendered Blender film, packed as 4×4 frame atlases (public/intro/atlasNN.webp).
+// Rendered Blender film as an image sequence (public/intro/frames/f000.webp …), 960×540.
 const FRAMES = 514;
-const PER = 16;
-const COLS = 4;
 const FW = 960;
 const FH = 540;
-const ATLASES = Math.ceil(FRAMES / PER);
 const CARD = 216; // card faces the camera, just before it turns to sand
 const END = 511; // landscape almost fully revealed
 const MARK = { x: 0.33, y: 0.68 }; // the quarry, as a share of the frame
@@ -28,11 +26,9 @@ const FPS = 24;
 // seconds for each guided glide, so the moving part of the film runs at PLAYBACK speed
 const GLIDE_TO_CARD = CARD / FPS / PLAYBACK / (T.card / AUTOPLAY_TO);
 const GLIDE_TO_SPRUCE = (END - CARD) / FPS / PLAYBACK / ((T.land - T.cardOut) / (SPRUCE_AT - AUTOPLAY_TO));
-// decoded atlases kept around the current one (each 3840×2160 ≈ 33 MB)
-const KEEP_BEHIND = 1;
-const KEEP_AHEAD = 2;
-
-const atlasUrl = (i: number) => `intro/atlas${String(i + 1).padStart(2, '0')}.webp`;
+const frameUrl = (i: number) => `intro/frames/f${String(i).padStart(3, '0')}.webp`;
+// download order: everything up to the first pause first, then the rest
+const LOAD_ORDER = Array.from({ length: FRAMES }, (_, i) => i);
 
 /**
  * Prologue: scroll-to-play film. The GPU card zooms out until it faces the viewer,
@@ -42,13 +38,11 @@ const atlasUrl = (i: number) => `intro/atlas${String(i + 1).padStart(2, '0')}.we
 export default function IntroScrollFilm() {
   const outerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const imgs = useRef<HTMLImageElement[]>([]);
-  const loaded = useRef<boolean[]>([]);
-  // pre-decoded copies of nearby atlases, so crossing an atlas boundary never blocks a frame
-  const bitmaps = useRef<(ImageBitmap | null)[]>([]);
-  const decoding = useRef<Set<number>>(new Set());
-  const windowAt = useRef(0);
+  const store = useRef<FrameStore | null>(null);
   const lastDrawn = useRef(-1);
+  const want = useRef(0);
+  const dir = useRef(1);
+  const rafId = useRef(0);
   const [box, setBox] = useState({ w: 1440, h: 900, dx: 0, dy: 0, dw: 1440, dh: 810 });
   const [phase, setPhase] = useState<'start' | 'card' | 'move' | 'land' | 'out'>('start');
 
@@ -69,99 +63,62 @@ export default function IntroScrollFilm() {
   const filmX = useTransform(p, [T.card - 0.08, T.card, T.cardOut, T.cardOut + 0.06], ['0%', '17%', '17%', '0%']);
   const hintOpacity = useTransform(p, [0, 0.03], [1, 0]);
 
-  // decode the atlases around `a` off the main thread and free the rest
-  const prepare = (a: number) => {
-    windowAt.current = a;
-    const lo = a - KEEP_BEHIND;
-    const hi = a + KEEP_AHEAD;
-    for (let i = Math.max(0, lo); i <= Math.min(ATLASES - 1, hi); i++) {
-      if (!loaded.current[i] || bitmaps.current[i] || decoding.current.has(i) || typeof createImageBitmap !== 'function') continue;
-      decoding.current.add(i);
-      createImageBitmap(imgs.current[i])
-        .then((bmp) => {
-          decoding.current.delete(i);
-          const w = windowAt.current;
-          if (i < w - KEEP_BEHIND - 1 || i > w + KEEP_AHEAD + 1) bmp.close();
-          else bitmaps.current[i] = bmp;
-        })
-        .catch(() => decoding.current.delete(i));
-    }
-    bitmaps.current.forEach((b, i) => {
-      if (b && (i < lo - 1 || i > hi + 1)) {
-        b.close();
-        bitmaps.current[i] = null;
-      }
-    });
-  };
-
-  const draw = (f: number) => {
+  // Draw at most once per screen refresh, and only when the shown frame changes.
+  const paint = () => {
+    rafId.current = 0;
     const c = canvasRef.current;
-    if (!c) return;
-    let k = Math.max(0, Math.min(FRAMES - 1, Math.round(f)));
-    // fall back to the nearest earlier frame that is already loaded
-    while (k > 0 && !loaded.current[Math.floor(k / PER)]) k -= 1;
-    const a = Math.floor(k / PER);
-    if (!loaded.current[a]) return;
-    if (a !== windowAt.current || !bitmaps.current[a]) prepare(a);
-    if (k === lastDrawn.current) return;
+    const st = store.current;
+    if (!c || !st) return;
+    st.focus(want.current, dir.current);
+    const hit = st.nearest(want.current);
+    if (!hit || hit.index === lastDrawn.current) return;
     const ctx = c.getContext('2d', { alpha: false });
     if (!ctx) return;
-    const cell = k % PER;
-    const sx = (cell % COLS) * FW;
-    const sy = Math.floor(cell / COLS) * FH;
-    const s = Math.max(c.width / FW, c.height / FH);
-    const dw = FW * s;
-    const dh = FH * s;
-    ctx.drawImage(bitmaps.current[a] ?? imgs.current[a], sx, sy, FW, FH, (c.width - dw) / 2, (c.height - dh) / 2, dw, dh);
-    lastDrawn.current = k;
+    // canvas is exactly one frame in size; CSS object-fit: cover scales it on the GPU
+    ctx.drawImage(hit.bmp, 0, 0);
+    lastDrawn.current = hit.index;
+  };
+  const requestPaint = () => {
+    if (!rafId.current) rafId.current = requestAnimationFrame(paint);
   };
 
-  // load atlases in order; the first ones first so scrolling can start right away
   useEffect(() => {
-    let cancelled = false;
-    const load = (i: number) => {
-      if (cancelled || i >= ATLASES) return;
-      const im = new Image();
-      im.decoding = 'async';
-      im.onload = () => {
-        loaded.current[i] = true;
-        if (i <= windowAt.current + KEEP_AHEAD) prepare(windowAt.current);
-        lastDrawn.current = -1;
-        draw(frame.get());
-        load(i + 1);
-      };
-      im.src = atlasUrl(i);
-      imgs.current[i] = im;
+    const st = new FrameStore(FRAMES, frameUrl);
+    store.current = st;
+    st.onReady = (i) => {
+      if (Math.abs(i - want.current) <= 24) requestPaint();
     };
-    load(0);
+    st.focus(0, 1);
+    st.load(LOAD_ORDER, 6);
     return () => {
-      cancelled = true;
-      bitmaps.current.forEach((b) => b?.close());
-      bitmaps.current = [];
+      cancelAnimationFrame(rafId.current);
+      st.dispose();
+      store.current = null;
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // canvas follows the viewport (cover fit)
+  // marker placement follows the cover-fit of the canvas
   useEffect(() => {
     const fit = () => {
       const c = canvasRef.current;
       if (!c) return;
-      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
       const w = c.clientWidth;
       const h = c.clientHeight;
-      c.width = Math.round(w * dpr);
-      c.height = Math.round(h * dpr);
       const s = Math.max(w / FW, h / FH);
       setBox({ w, h, dw: FW * s, dh: FH * s, dx: (w - FW * s) / 2, dy: (h - FH * s) / 2 });
-      lastDrawn.current = -1;
-      draw(frame.get());
     };
     fit();
     window.addEventListener('resize', fit);
     return () => window.removeEventListener('resize', fit);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
-  useMotionValueEvent(frame, 'change', draw);
+  useMotionValueEvent(frame, 'change', (f) => {
+    const k = Math.max(0, Math.min(FRAMES - 1, Math.round(f)));
+    if (k === want.current) return;
+    dir.current = k > want.current ? 1 : -1;
+    want.current = k;
+    requestPaint();
+  });
   useMotionValueEvent(p, 'change', (v) => {
     const next =
       v < T.card - 0.02 ? 'start' : v < T.cardOut ? 'card' : v < T.land - 0.01 ? 'move' : v < T.landOut + 0.02 ? 'land' : 'out';
@@ -179,7 +136,7 @@ export default function IntroScrollFilm() {
       <div data-snap data-guide="intro" data-guide-duration={GLIDE_TO_CARD.toFixed(2)} aria-hidden className="pointer-events-none absolute left-0 h-px w-px" style={{ top: `${AUTOPLAY_TO * (LEN - 100)}vh` }} />
       <div className="sticky top-0 h-screen overflow-hidden bg-ink">
         <motion.div className="absolute inset-0" style={{ filter, opacity: filmOpacity, scale: filmScale, x: filmX }}>
-          <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" aria-label="A GPU card zooms out, dissolves into sand and opens onto the quartz mines of Spruce Pine" role="img" />
+          <canvas ref={canvasRef} width={FW} height={FH} className="absolute inset-0 h-full w-full object-cover" aria-label="A GPU card zooms out, dissolves into sand and opens onto the quartz mines of Spruce Pine" role="img" />
 
           {/* edges fade into the page, like every film on the site */}
           <div className="pointer-events-none absolute inset-y-0 left-0 w-[24%] bg-gradient-to-r from-ink via-ink/40 to-transparent" />
@@ -216,7 +173,7 @@ export default function IntroScrollFilm() {
               </text>
             </svg>
             <span className="absolute -left-6 -top-6 h-12 w-12 animate-ping rounded-full border border-trace/70" />
-            <span className="absolute -left-3 -top-3 h-6 w-6 rounded-full border border-trace bg-ink/60 backdrop-blur" />
+            <span className="absolute -left-3 -top-3 h-6 w-6 rounded-full border border-trace bg-ink/80" />
             <span className="absolute -left-1 -top-1 h-2 w-2 rounded-full bg-trace shadow-[0_0_12px_rgba(56,189,248,1)]" />
           </motion.div>
         </motion.div>
