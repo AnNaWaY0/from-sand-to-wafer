@@ -17,3 +17,14 @@ export const chapter = (id: string): Chapter => {
 
 /** "02 — Smelting" (or a custom label after the dash) */
 export const kicker = (id: string, label?: string) => `${chapter(id).no} — ${label ?? chapter(id).title}`;
+
+/**
+ * Teaser build for presenting work in progress: the story stops at the chapter 03 heading.
+ * On when the site is served from the "-preview" repository, or with ?teaser in the URL.
+ */
+export const TEASER =
+  typeof window !== 'undefined' &&
+  (/-preview(\/|$)/.test(window.location.pathname) || new URLSearchParams(window.location.search).has('teaser'));
+
+/** chapters shown in this build */
+export const visibleChapters = TEASER ? chapters.filter((c) => c.id !== 'lithography') : chapters;

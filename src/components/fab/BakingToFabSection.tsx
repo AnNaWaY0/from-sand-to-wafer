@@ -1,3 +1,4 @@
+import { TEASER } from '../../data/chapters';
 import { fabSteps, melting } from '../../data/processSteps';
 import CircuitProcessMap from './CircuitProcessMap';
 import MeltingVideo from './MeltingVideo';
@@ -14,7 +15,7 @@ export default function BakingToFabSection() {
       <MeltingVideo intro={melting} />
 
       <div className="mx-auto max-w-6xl px-6">
-        <CircuitProcessMap steps={fabSteps} />
+        <CircuitProcessMap steps={fabSteps} teaser={TEASER} />
       </div>
     </section>
   );

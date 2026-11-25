@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
-import { chapters } from '../../data/chapters';
+import { visibleChapters as chapters } from '../../data/chapters';
 
 /**
  * Slim chapter index on the right edge. Each chapter has an element with its id

@@ -39,13 +39,15 @@ const lerp = (x: number, xs: number[], ys: number[]) => {
   return ys[ys.length - 1];
 };
 
-type Props = { steps: FabStep[] };
+type Props = { steps: FabStep[]; teaser?: boolean };
 
 /**
  * Stage 2: a vertical circuit-board trace. Scrolling moves the "camera" down the
  * trace; at every via pad it pauses and a large preview card slides in beside it.
  */
-export default function CircuitProcessMap({ steps }: Props) {
+export default function CircuitProcessMap({ steps: allSteps, teaser = false }: Props) {
+  // teaser: only the lead-in and the chapter heading, no stations yet
+  const steps = teaser ? [] : allSteps;
   const n = steps.length;
   const outerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -58,7 +60,7 @@ export default function CircuitProcessMap({ steps }: Props) {
   const [open, setOpen] = useState<number | null>(null);
 
   // Geometry: pads alternate left/right of the centre so the card always has room on the other side.
-  const H = TOP + (n - 1) * GAP + TAIL;
+  const H = n ? TOP + (n - 1) * GAP + TAIL : LABEL_STOP_Y + 620;
   const sides = steps.map((_, i) => (i % 2 === 0 ? 'right' : 'left') as 'left' | 'right');
   const nodes: Pt[] = steps.map((_, i) => ({ x: sides[i] === 'right' ? CENTER - 120 : CENTER + 120, y: TOP + i * GAP }));
   const { d, fractions, labelFraction } = useMemo(() => {
@@ -86,8 +88,7 @@ export default function CircuitProcessMap({ steps }: Props) {
       stops.push(p);
       stationIdx.push(stops.length - 1);
     });
-    const last = nodes[n - 1];
-    stops.push({ x: CENTER, y: last.y + 180 });
+    if (n) stops.push({ x: CENTER, y: nodes[n - 1].y + 180 });
     stops.push({ x: CENTER, y: H });
     const r = pcbPath(stops, { chamfer: 18 });
     return { d: r.d, fractions: stationIdx.map((k) => r.fractions[k]), labelFraction: r.fractions[labelIdx] };
@@ -110,8 +111,8 @@ export default function CircuitProcessMap({ steps }: Props) {
   //    speed the page scrolls, so its head rises from the bottom edge to mid-screen.
   // 2) Once the board is pinned, the camera follows the head, pausing at the chapter
   //    label and at every station.
-  const OUTER = n * 135 + 170; // vh
-  const stops = pauseAt(n);
+  const OUTER = n ? n * 135 + 170 : 230; // vh
+  const stops = n ? pauseAt(n) : [0.45];
   const lut = useRef<{ y: number[]; f: number[] }>({ y: [0], f: [0] });
   const fracAtY = (yy: number) => lerp(yy, lut.current.y, lut.current.f);
   const { scrollYProgress } = useScroll({ target: outerRef, offset: ['start start', 'end end'] });

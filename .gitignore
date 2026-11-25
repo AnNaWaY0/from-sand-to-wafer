@@ -11,3 +11,7 @@ public/posters/baking-*.jpg
 # local helper
 publish.bat
 publish-log.txt
+# replaced by public/intro/frames
+public/intro/atlas*.webp
+public/intro/frames.zip
+publish-preview.bat
