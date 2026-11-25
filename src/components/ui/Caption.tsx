@@ -1,6 +1,5 @@
 import { AnimatePresence, motion, useInView } from 'framer-motion';
 import { useRef } from 'react';
-import RevealText from '../fab/RevealText';
 import ScrambleText from './ScrambleText';
 
 export type Spec = { label: string; value: string };
@@ -24,8 +23,8 @@ const EASE = [0.22, 1, 0.36, 1] as const;
 
 /**
  * The one caption style used across the site, with a digital entrance:
- * a scan line sweeps the block, the kicker and specs decode from random glyphs,
- * the headline rises out of a blurred, flickering mask and the body resolves last.
+ * a scan line sweeps the block, kicker, headline and specs decode from random
+ * glyphs like a split-flap board, and the body resolves last.
  * Positioning is up to the parent.
  */
 export default function Caption({ kicker, title, body, specs, tone = 'trace', show }: Props) {
@@ -61,11 +60,17 @@ export default function Caption({ kicker, title, body, specs, tone = 'trace', sh
         <ScrambleText text={kicker} active={on} duration={650} />
       </p>
 
-      <RevealText
-        show={on}
-        text={title}
-        className="mt-4 bg-gradient-to-b from-white to-zinc-400 bg-clip-text font-display text-3xl font-medium leading-[1.05] tracking-[-0.02em] text-transparent md:text-[44px]"
-      />
+      {/* headline decodes like the spec row; an invisible copy reserves the final layout so lines never jump */}
+      <h2
+        aria-label={title}
+        className="mt-4 grid bg-gradient-to-b from-white to-zinc-400 bg-clip-text font-display text-3xl font-medium leading-[1.05] tracking-[-0.02em] text-transparent md:text-[44px]"
+        style={{ textWrap: 'balance' }}
+      >
+        <span aria-hidden className="invisible col-start-1 row-start-1">
+          {title}
+        </span>
+        <ScrambleText className="col-start-1 row-start-1" text={title} active={on} duration={900} delay={120} />
+      </h2>
 
       <motion.p
         className="mt-4 text-[15px] leading-relaxed text-zinc-400"

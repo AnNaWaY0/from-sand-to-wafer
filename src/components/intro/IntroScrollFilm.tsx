@@ -153,9 +153,9 @@ export default function IntroScrollFilm() {
             transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
           >
             <svg width="300" height="190" viewBox="0 0 300 190" className="absolute" style={{ left: -130, top: -176 }} overflow="visible">
-              {/* PCB-style leader: up, 45°, across */}
+              {/* PCB-style leader: short 45° rise, then out to the right, clear of the caption */}
               <path
-                d="M130 176 V110 L160 80 H290"
+                d="M136 170 L160 146 H300"
                 fill="none"
                 stroke="#38BDF8"
                 strokeWidth="1.5"
@@ -164,11 +164,11 @@ export default function IntroScrollFilm() {
                 strokeDashoffset={phase === 'land' ? 0 : 1}
                 style={{ transition: 'stroke-dashoffset 0.9s cubic-bezier(0.22,1,0.36,1) 0.2s' }}
               />
-              <circle cx="290" cy="80" r="3.5" fill="#38BDF8" />
-              <text x="170" y="70" fill="rgba(255,255,255,0.75)" fontFamily="JetBrains Mono, monospace" fontSize="10" letterSpacing="2.2">
+              <circle cx="300" cy="146" r="3.5" fill="#38BDF8" />
+              <text x="168" y="138" fill="rgba(255,255,255,0.75)" fontFamily="JetBrains Mono, monospace" fontSize="10" letterSpacing="2.2">
                 SPRUCE PINE
               </text>
-              <text x="170" y="98" fill="rgba(255,255,255,0.45)" fontFamily="JetBrains Mono, monospace" fontSize="9" letterSpacing="1.6">
+              <text x="168" y="162" fill="rgba(255,255,255,0.45)" fontFamily="JetBrains Mono, monospace" fontSize="9" letterSpacing="1.6">
                 35.9° N · 82.1° W
               </text>
             </svg>
