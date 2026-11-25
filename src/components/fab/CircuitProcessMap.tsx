@@ -53,6 +53,8 @@ export default function CircuitProcessMap({ steps }: Props) {
   const [size, setSize] = useState({ w: 1152, h: 800 });
   const [active, setActive] = useState<number | null>(null);
   const [lit, setLit] = useState(0);
+  const [labelLit, setLabelLit] = useState(false); // the current has reached the chapter label branch
+  const [atLabel, setAtLabel] = useState(false); // resting at the chapter label
   const [open, setOpen] = useState<number | null>(null);
 
   // Geometry: pads alternate left/right of the centre so the card always has room on the other side.
@@ -178,10 +180,13 @@ export default function CircuitProcessMap({ steps }: Props) {
     const j = entry.get() < 1 ? -1 : stops.findIndex((st) => p >= st - HOLD - 0.012 && p <= st + HOLD + 0.02);
     const next = j > 0 ? j - 1 : null;
     setActive((prev) => (prev === next ? prev : next));
+    setAtLabel((prev) => (prev === (j === 0) ? prev : j === 0));
   });
   useMotionValueEvent(smooth, 'change', (f) => {
     const k = fractions.filter((fr) => f >= fr - 0.003).length;
     setLit((prev) => (prev === k ? prev : k));
+    const reached = f >= labelFraction - 0.002;
+    setLabelLit((prev) => (prev === reached ? prev : reached));
   });
 
   return (
@@ -276,9 +281,44 @@ export default function CircuitProcessMap({ steps }: Props) {
                 <text x={60} y={104} fontFamily="JetBrains Mono, monospace" fontSize={13} letterSpacing="0.2em" fill="rgba(255,255,255,0.35)">
                   U{Number(chapter('wafer-line').no)} · WAFER LINE
                 </text>
-                {/* branch from the main trace into the label */}
-                <path d={`M${CENTER} 220 L${CENTER - 40} 260 H530`} fill="none" stroke="rgba(56,189,248,0.45)" strokeWidth={2} strokeLinejoin="round" />
-                <circle cx={530} cy={260} r={6} fill="#09090B" stroke={ACCENT} strokeWidth={1.5} />
+                {/* branch from the main trace into the label: the first stop. The current
+                    runs into it and lights the pad, so the reader sees the line is scroll-driven. */}
+                <path d={`M${CENTER} 220 L${CENTER - 40} 260 H530`} fill="none" stroke="rgba(255,255,255,0.16)" strokeWidth={2} strokeLinejoin="round" />
+                <path
+                  d={`M${CENTER} 220 L${CENTER - 40} 260 H530`}
+                  fill="none"
+                  stroke={ACCENT}
+                  strokeWidth={3}
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                  pathLength={1}
+                  strokeDasharray={1}
+                  strokeDashoffset={labelLit ? 0 : 1}
+                  filter="url(#traceGlowV)"
+                  style={{ transition: 'stroke-dashoffset 0.6s cubic-bezier(0.22,1,0.36,1)' }}
+                />
+                {atLabel && (
+                  <circle cx={530} cy={260} r={9} fill="none" stroke={ACCENT} strokeWidth={1.5} className="label-pad-ping" />
+                )}
+                <circle
+                  cx={530}
+                  cy={260}
+                  r={7}
+                  fill={labelLit ? ACCENT : '#09090B'}
+                  stroke={labelLit ? ACCENT : 'rgba(255,255,255,0.35)'}
+                  strokeWidth={1.5}
+                  style={{
+                    transition: 'fill 0.4s ease 0.45s, stroke 0.4s ease 0.45s',
+                    filter: labelLit ? 'drop-shadow(0 0 8px rgba(56,189,248,1))' : 'none',
+                  }}
+                />
+                {/* nudge: keep scrolling */}
+                <g style={{ opacity: atLabel ? 1 : 0, transition: 'opacity 0.5s ease 0.6s' }}>
+                  <text x={548} y={300} fontFamily="JetBrains Mono, monospace" fontSize={12} letterSpacing="0.25em" fill="rgba(56,189,248,0.85)">
+                    SCROLL
+                  </text>
+                  <path d="M552 312 l6 6 l6 -6" fill="none" stroke="rgba(56,189,248,0.85)" strokeWidth={1.5} className="label-chevron" />
+                </g>
               </g>
 
               {/* dormant trace */}
