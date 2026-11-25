@@ -18,10 +18,26 @@ import StagePreviewCard from './StagePreviewCard';
 const ACCENT = '#38BDF8';
 const W = 1200;            // design width of the board (SVG units)
 const GAP = 1100;          // vertical distance between stations
-const TOP = 600;           // first station (room for the chapter label above it)
+const PRE = 420;           // copper lead-in from the furnace film (orange cooling to blue)
+const LABEL = PRE;         // the chapter label block starts here
+const TOP = PRE + 600;     // first station (room for the chapter label above it)
 const TAIL = 760;          // trace after the last station, down to the section edge
 const CENTER = W / 2;
 const HOLD = 0.05;         // half-width of each pause, in scroll progress
+const MOLTEN = '#F97316';
+const LABEL_STOP_Y = LABEL + 220; // where the current rests beside the chapter label
+// scroll position (0–1) of each pause: the chapter label first, then the stations
+const pauseAt = (count: number) => [0.07, ...Array.from({ length: count }, (_, i) => 0.21 + (i * 0.72) / Math.max(1, count - 1))];
+const lerp = (x: number, xs: number[], ys: number[]) => {
+  if (x <= xs[0]) return ys[0];
+  for (let i = 1; i < xs.length; i++) {
+    if (x <= xs[i]) {
+      const t = xs[i] === xs[i - 1] ? 1 : (x - xs[i - 1]) / (xs[i] - xs[i - 1]);
+      return ys[i - 1] + (ys[i] - ys[i - 1]) * t;
+    }
+  }
+  return ys[ys.length - 1];
+};
 
 type Props = { steps: FabStep[] };
 
@@ -43,8 +59,18 @@ export default function CircuitProcessMap({ steps }: Props) {
   const H = TOP + (n - 1) * GAP + TAIL;
   const sides = steps.map((_, i) => (i % 2 === 0 ? 'right' : 'left') as 'left' | 'right');
   const nodes: Pt[] = steps.map((_, i) => ({ x: sides[i] === 'right' ? CENTER - 120 : CENTER + 120, y: TOP + i * GAP }));
-  const { d, fractions } = useMemo(() => {
-    const stops: Pt[] = [{ x: CENTER, y: 0 }];
+  const { d, fractions, labelFraction } = useMemo(() => {
+    // lead-in from the furnace film: down, a 45° jog out and back, then the chapter label
+    const stops: Pt[] = [
+      { x: CENTER, y: 0 },
+      { x: CENTER, y: 110 },
+      { x: CENTER + 60, y: 170 },
+      { x: CENTER + 60, y: 300 },
+      { x: CENTER, y: 360 },
+      { x: CENTER, y: LABEL_STOP_Y },
+    ];
+    const labelIdx = stops.length - 1;
+    const stationIdx: number[] = [];
     nodes.forEach((p, i) => {
       if (i > 0) {
         // a PCB-style dog-leg between stations: jog out, run down, jog back
@@ -56,14 +82,13 @@ export default function CircuitProcessMap({ steps }: Props) {
         stops.push({ x: CENTER, y: p.y - 160 });
       }
       stops.push(p);
+      stationIdx.push(stops.length - 1);
     });
     const last = nodes[n - 1];
     stops.push({ x: CENTER, y: last.y + 180 });
     stops.push({ x: CENTER, y: H });
     const r = pcbPath(stops, { chamfer: 18 });
-    // keep only the fractions that belong to stations
-    const stationIdx = nodes.map((_, i) => (i === 0 ? 2 : 2 + i * 3));
-    return { d: r.d, fractions: stationIdx.map((k) => r.fractions[k]) };
+    return { d: r.d, fractions: stationIdx.map((k) => r.fractions[k]), labelFraction: r.fractions[labelIdx] };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [n]);
   const bg = useMemo(() => backgroundTraces(W, H, 140, 21), [H]);
@@ -78,22 +103,45 @@ export default function CircuitProcessMap({ steps }: Props) {
   }, []);
   const s = size.w / W; // px per unit
 
-  // Scroll → position along the trace, with a plateau (pause) at each station.
+  // Scroll → position along the trace.
+  // 1) While the board slides in under the furnace film, the current runs at the same
+  //    speed the page scrolls, so its head rises from the bottom edge to mid-screen.
+  // 2) Once the board is pinned, the camera follows the head, pausing at the chapter
+  //    label and at every station.
+  const OUTER = n * 135 + 170; // vh
+  const stops = pauseAt(n);
+  const lut = useRef<{ y: number[]; f: number[] }>({ y: [0], f: [0] });
+  const fracAtY = (yy: number) => lerp(yy, lut.current.y, lut.current.f);
   const { scrollYProgress } = useScroll({ target: outerRef, offset: ['start start', 'end end'] });
-  const stops = steps.map((_, i) => 0.08 + (i * 0.84) / Math.max(1, n - 1));
-  const input: number[] = [0];
-  const output: number[] = [0];
-  stops.forEach((st, i) => {
-    input.push(st - HOLD, st + HOLD);
-    output.push(fractions[i], fractions[i]);
-  });
-  input.push(1);
-  output.push(1);
-  const along = useTransform(scrollYProgress, input, output);
-  const smooth = useSpring(along, { stiffness: 120, damping: 26, mass: 0.5 });
+  const { scrollYProgress: entry } = useScroll({ target: outerRef, offset: ['start end', 'start start'] });
+  const along = useMotionValue(0);
+  const smooth = useSpring(along, { stiffness: 140, damping: 30, mass: 0.5 });
+  const compute = () => {
+    const e = entry.get();
+    const startY = Math.min((size.h / 2) / s, LABEL_STOP_Y * 0.8); // head at mid-screen when the board pins
+    const f0 = fracAtY(startY);
+    if (e < 1) {
+      along.set(fracAtY(e * startY));
+      return;
+    }
+    const xs = [0];
+    const ys = [f0];
+    const targets = [labelFraction, ...fractions];
+    stops.forEach((st, i) => {
+      xs.push(st - HOLD, st + HOLD);
+      ys.push(targets[i], targets[i]);
+    });
+    xs.push(1);
+    ys.push(1);
+    along.set(lerp(scrollYProgress.get(), xs, ys));
+  };
+  useMotionValueEvent(entry, 'change', compute);
+  useMotionValueEvent(scrollYProgress, 'change', compute);
 
   const headX = useMotionValue(CENTER);
   const headY = useMotionValue(0);
+  const hotHead = useTransform(headY, [0, LABEL_STOP_Y * 0.35, LABEL_STOP_Y * 0.85], [1, 1, 0]);
+  const coolHead = useTransform(hotHead, (v) => 1 - v);
   const camY = useMotionValue(0);
 
   const place = (f: number) => {
@@ -107,11 +155,29 @@ export default function CircuitProcessMap({ steps }: Props) {
     camY.set(Math.min(0, Math.max(size.h - H * s, y)));
   };
   useMotionValueEvent(smooth, 'change', place);
-  useEffect(() => place(smooth.get()), [size.w, size.h]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    // y → fraction lookup for the trace (y only ever increases along it)
+    const el = pathRef.current;
+    if (el) {
+      const L = el.getTotalLength();
+      const ys: number[] = [];
+      const fs: number[] = [];
+      for (let k = 0; k <= 400; k++) {
+        const f = k / 400;
+        ys.push(el.getPointAtLength(f * L).y);
+        fs.push(f);
+      }
+      lut.current = { y: ys, f: fs };
+    }
+    compute();
+    place(smooth.get());
+  }, [size.w, size.h, d]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useMotionValueEvent(scrollYProgress, 'change', (p) => {
-    const i = stops.findIndex((st) => p >= st - HOLD - 0.012 && p <= st + HOLD + 0.02);
-    setActive((prev) => (prev === (i < 0 ? null : i) ? prev : i < 0 ? null : i));
+    // index 0 is the chapter label (no card); stations follow
+    const j = entry.get() < 1 ? -1 : stops.findIndex((st) => p >= st - HOLD - 0.012 && p <= st + HOLD + 0.02);
+    const next = j > 0 ? j - 1 : null;
+    setActive((prev) => (prev === next ? prev : next));
   });
   useMotionValueEvent(smooth, 'change', (f) => {
     const k = fractions.filter((fr) => f >= fr - 0.003).length;
@@ -120,14 +186,13 @@ export default function CircuitProcessMap({ steps }: Props) {
 
   return (
     <>
-      <div ref={outerRef} id="wafer-line" className="relative" style={{ height: `${n * 135 + 60}vh` }}>
-        {/* story points for the magnetic scroll: the chapter label and every station pause */}
-        <div data-snap data-guide="route" aria-hidden className="pointer-events-none absolute left-0 top-0 h-px w-px" />
+      <div ref={outerRef} id="wafer-line" className="relative" style={{ height: `${OUTER}vh` }}>
+        {/* story points for the magnetic and guided scroll: the chapter label, then every station */}
         {stops.map((st, i) => (
-          <div key={i} data-snap data-guide="route" aria-hidden className="pointer-events-none absolute left-0 h-px w-px" style={{ top: `${st * (n * 135 + 60 - 100)}vh` }} />
+          <div key={i} data-snap data-guide="route" aria-hidden className="pointer-events-none absolute left-0 h-px w-px" style={{ top: `${st * (OUTER - 100)}vh` }} />
         ))}
         {/* end of the route: the trace runs on into the next block */}
-        <div data-guide="route" aria-hidden className="pointer-events-none absolute left-0 h-px w-px" style={{ top: `${n * 135 + 60 - 100}vh` }} />
+        <div data-guide="route" aria-hidden className="pointer-events-none absolute left-0 h-px w-px" style={{ top: `${OUTER - 100}vh` }} />
         <div ref={stageRef} className="sticky top-0 h-screen overflow-hidden">
           <motion.div className="absolute left-0 top-0 w-full" style={{ y: camY, height: H * s }}>
             <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H * s} className="block overflow-visible" aria-hidden>
@@ -139,6 +204,19 @@ export default function CircuitProcessMap({ steps }: Props) {
                     <feMergeNode in="SourceGraphic" />
                   </feMerge>
                 </filter>
+                {/* the current leaves the furnace molten and cools to circuit blue */}
+                <linearGradient id="routeHeat" x1="0" y1="0" x2="0" y2={LABEL_STOP_Y} gradientUnits="userSpaceOnUse">
+                  <stop offset="0%" stopColor={MOLTEN} />
+                  <stop offset="35%" stopColor={MOLTEN} />
+                  <stop offset="60%" stopColor="#F5D0A9" />
+                  <stop offset="85%" stopColor={ACCENT} />
+                  <stop offset="100%" stopColor={ACCENT} />
+                </linearGradient>
+                <radialGradient id="headGlowHot">
+                  <stop offset="0%" stopColor="#FFEDD5" />
+                  <stop offset="35%" stopColor={MOLTEN} stopOpacity="0.9" />
+                  <stop offset="100%" stopColor={MOLTEN} stopOpacity="0" />
+                </radialGradient>
                 <radialGradient id="headGlowV">
                   <stop offset="0%" stopColor="#E0F2FE" />
                   <stop offset="35%" stopColor={ACCENT} stopOpacity="0.9" />
@@ -159,7 +237,7 @@ export default function CircuitProcessMap({ steps }: Props) {
               </g>
 
               {/* chapter label, printed on the board like PCB silkscreen */}
-              <g>
+              <g transform={`translate(0 ${LABEL})`}>
                 <motion.text
                   x={515}
                   y={440}
@@ -208,9 +286,10 @@ export default function CircuitProcessMap({ steps }: Props) {
               <path d={d} fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth={1} strokeDasharray="2 7" />
 
               {/* live current */}
-              <motion.path d={d} fill="none" stroke={ACCENT} strokeWidth={12} strokeLinecap="round" strokeLinejoin="round" opacity={0.35} filter="url(#traceGlowV)" style={{ pathLength: smooth }} />
-              <motion.path ref={pathRef} d={d} fill="none" stroke={ACCENT} strokeWidth={3.5} strokeLinecap="round" strokeLinejoin="round" style={{ pathLength: smooth }} />
-              <motion.circle cx={headX} cy={headY} r={22} fill="url(#headGlowV)" />
+              <motion.path d={d} fill="none" stroke="url(#routeHeat)" strokeWidth={12} strokeLinecap="round" strokeLinejoin="round" opacity={0.35} filter="url(#traceGlowV)" style={{ pathLength: smooth }} />
+              <motion.path ref={pathRef} d={d} fill="none" stroke="url(#routeHeat)" strokeWidth={3.5} strokeLinecap="round" strokeLinejoin="round" style={{ pathLength: smooth }} />
+              <motion.circle cx={headX} cy={headY} r={22} fill="url(#headGlowV)" style={{ opacity: coolHead }} />
+              <motion.circle cx={headX} cy={headY} r={22} fill="url(#headGlowHot)" style={{ opacity: hotHead }} />
 
               {/* via pads */}
               {nodes.map((p, i) => {
@@ -261,7 +340,7 @@ export default function CircuitProcessMap({ steps }: Props) {
             </svg>
 
             {/* chapter heading sits inside the silkscreen frame and scrolls with the board */}
-            <div className="absolute" style={{ left: 100 * s, top: 150 * s, width: 384 }}>
+            <div className="absolute" style={{ left: 100 * s, top: (LABEL + 150) * s, width: 384 }}>
               <Caption
                 kicker={kicker('wafer-line', 'From metal to mirror')}
                 title="Five stations to a mirror-flat wafer."

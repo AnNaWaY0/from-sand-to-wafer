@@ -23,10 +23,12 @@ export function useGuidedScroll({ pace = 0.55, min = 0.8, max = 3.2 } = {}) {
       const y0 = window.scrollY;
       const map = new Map<string, Stop[]>();
       document.querySelectorAll<HTMLElement>('[data-guide]').forEach((el) => {
-        const z = el.dataset.guide!;
         const t = Math.round(el.getBoundingClientRect().top + y0);
         const d = Number(el.dataset.guideDuration);
-        map.set(z, [...(map.get(z) ?? []), { t, d: Number.isFinite(d) && d > 0 ? d : undefined }]);
+        // an element can end one zone and start the next: data-guide="intro route"
+        for (const z of el.dataset.guide!.split(/\s+/)) {
+          map.set(z, [...(map.get(z) ?? []), { t, d: Number.isFinite(d) && d > 0 ? d : undefined }]);
+        }
       });
       return [...map.values()].map((v) => v.sort((a, b) => a.t - b.t));
     };
